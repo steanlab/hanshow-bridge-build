@@ -5,11 +5,11 @@ name: build-bridge
 on:
   workflow_dispatch:
     inputs:
-      sws_tx:    { description: 'GPIO for SWS out (goes through the 1 kOhm resistor to the tag SWS pad)', default: '6' }
-      sws_rx:    { description: 'GPIO for SWS in (goes directly to the tag SWS pad)', default: '7' }
-      tag_reset: { description: 'GPIO for tag NRST', default: '10' }
-      uart_tx:   { description: 'GPIO for UART TX to the tag RXD (must be 4, 8, 20 or 24)', default: '8' }
-      uart_rx:   { description: 'GPIO for UART RX from the tag TXD (must be 5, 9, 21 or 25)', default: '9' }
+      sws_tx:    { description: 'GPIO for SWS out (goes through the 1 kOhm resistor to the tag SWS pad)', default: '9' }
+      sws_rx:    { description: 'GPIO for SWS in (goes directly to the tag SWS pad)', default: '10' }
+      tag_reset: { description: 'GPIO for tag NRST', default: '11' }
+      uart_tx:   { description: 'GPIO for UART TX to the tag RXD (must be 4, 8, 20 or 24)', default: '4' }
+      uart_rx:   { description: 'GPIO for UART RX from the tag TXD (must be 5, 9, 21 or 25)', default: '5' }
       board:     { description: 'Pico SDK board (pico for a Raspberry Pi Pico)', default: 'pico' }
 jobs:
   build:
