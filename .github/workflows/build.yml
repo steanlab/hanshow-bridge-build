@@ -1,0 +1,59 @@
+# Builds Gerard780's hanshow-rp2040-programmer bridge firmware (v1.6, MIT) with other GPIO numbers,
+# for a Raspberry Pi Pico with some dead GPIO pins. Run it by hand: Actions -> build-bridge -> Run workflow, type your pins.
+# The firmware source is NOT copied here: the workflow clones the pinned upstream commit and changes one line (the pin enum).
+name: build-bridge
+on:
+  workflow_dispatch:
+    inputs:
+      sws_tx:    { description: 'GPIO for SWS out (goes through the 1 kOhm resistor to the tag SWS pad)', default: '6' }
+      sws_rx:    { description: 'GPIO for SWS in (goes directly to the tag SWS pad)', default: '7' }
+      tag_reset: { description: 'GPIO for tag NRST', default: '10' }
+      uart_tx:   { description: 'GPIO for UART TX to the tag RXD (must be 4, 8, 20 or 24)', default: '8' }
+      uart_rx:   { description: 'GPIO for UART RX from the tag TXD (must be 5, 9, 21 or 25)', default: '9' }
+      board:     { description: 'Pico SDK board (pico for a Raspberry Pi Pico)', default: 'pico' }
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the pin numbers
+        env: { SWS_TX: '${{ inputs.sws_tx }}', SWS_RX: '${{ inputs.sws_rx }}', RST: '${{ inputs.tag_reset }}', UTX: '${{ inputs.uart_tx }}', URX: '${{ inputs.uart_rx }}' }
+        run: |
+          for v in $SWS_TX $SWS_RX $RST $UTX $URX; do [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -le 28 ] || { echo "bad pin $v"; exit 1; }; done
+          case "$UTX" in 4|8|20|24) ;; *) echo "uart_tx must be 4, 8, 20 or 24"; exit 1;; esac
+          case "$URX" in 5|9|21|25) ;; *) echo "uart_rx must be 5, 9, 21 or 25"; exit 1;; esac
+          [ "$(printf '%s\n' $SWS_TX $SWS_RX $RST $UTX $URX | sort -u | wc -l)" = 5 ] || { echo "pins must all differ"; exit 1; }
+      - name: Install the ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential python3
+          arm-none-eabi-gcc --version | head -1
+      - name: Get Pico SDK 2.2.0 (the commit used by the upstream release) and TinyUSB
+        run: |
+          git clone https://github.com/raspberrypi/pico-sdk.git
+          git -C pico-sdk checkout a1438dff1d38bd9c65dbd693f0e5db4b9ae91779
+          git -C pico-sdk submodule update --init lib/tinyusb
+          git -C pico-sdk/lib/tinyusb log -1 --format='tinyusb %H'
+      - name: Get the upstream programmer (pinned commit) and change the pins
+        env: { SWS_TX: '${{ inputs.sws_tx }}', SWS_RX: '${{ inputs.sws_rx }}', RST: '${{ inputs.tag_reset }}', UTX: '${{ inputs.uart_tx }}', URX: '${{ inputs.uart_rx }}' }
+        run: |
+          git clone https://github.com/gerard780/hanshow-rp2040-programmer.git up
+          git -C up checkout ef7935e33a41d4600b972e2c2ac56644bbcb8dd7
+          OLD='enum { SWS_TX = 0, SWS_RX = 1, TAG_RESET = 2, TAG_TX = 4, TAG_RX = 5 };'
+          grep -qF "$OLD" up/src/main.c
+          sed -i "s|enum { SWS_TX = 0, SWS_RX = 1, TAG_RESET = 2, TAG_TX = 4, TAG_RX = 5 };|enum { SWS_TX = $SWS_TX, SWS_RX = $SWS_RX, TAG_RESET = $RST, TAG_TX = $UTX, TAG_RX = $URX };|" up/src/main.c
+          grep -n 'enum { SWS_TX' up/src/main.c
+          git -C up diff --stat
+      - name: Build
+        run: |
+          cd up
+          cmake -S . -B build -DPICO_SDK_PATH=$GITHUB_WORKSPACE/pico-sdk -DPICO_BOARD=${{ inputs.board }} \
+            -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release -DENABLE_TAG_RESET=ON
+          SOURCE_DATE_EPOCH=1791158400 cmake --build build -j4
+          python3 make_uf2.py build/hanshow_pio_bridge.bin build/hanshow_pio_bridge.uf2
+          mkdir -p ../out && cp build/hanshow_pio_bridge.uf2 ../out/hanshow_bridge_v1.6_remap.uf2
+          ls -l ../out
+          sha256sum ../out/*.uf2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bridge-uf2
+          path: out/*.uf2
